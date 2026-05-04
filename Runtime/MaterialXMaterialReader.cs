@@ -212,7 +212,3 @@ public static class MaterialXMaterialReader
         return true;
     }
 }
-
-
-
-

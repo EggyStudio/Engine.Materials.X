@@ -16,4 +16,3 @@
     <input name="surfaceshader" type="surfaceshader" nodename="SR_red" />
   </surfacematerial>
 </materialx>
-

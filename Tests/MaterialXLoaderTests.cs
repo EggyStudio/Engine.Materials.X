@@ -71,4 +71,3 @@ public sealed class MaterialXLoaderTests
         new MaterialXLoader().Extensions.Should().BeEquivalentTo(new[] { ".mtlx" });
     }
 }
-

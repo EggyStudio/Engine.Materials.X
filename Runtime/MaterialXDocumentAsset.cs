@@ -35,5 +35,3 @@ public sealed class MaterialXDocumentAsset : IDisposable
     /// <inheritdoc />
     public void Dispose() => Document.Dispose();
 }
-
-

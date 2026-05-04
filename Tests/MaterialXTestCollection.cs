@@ -15,4 +15,3 @@ public sealed class MaterialXTestCollection
 {
     public const string Name = "MaterialX";
 }
-

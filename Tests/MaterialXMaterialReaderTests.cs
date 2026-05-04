@@ -117,5 +117,3 @@ public sealed class MaterialXMaterialReaderTests
         first!.BaseColorFactor.Should().Be(new Vector4(1f, 0f, 0f, 1f));
     }
 }
-
-

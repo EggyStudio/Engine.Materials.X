@@ -66,4 +66,3 @@ public sealed class MaterialXPluginTests
             "the plugin's reported availability must match the runtime layout probe");
     }
 }
-

@@ -62,4 +62,3 @@ public sealed class MaterialXLoader : IAssetLoader<MaterialXDocumentAsset>
         }
     }
 }
-

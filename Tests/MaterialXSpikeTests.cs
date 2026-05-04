@@ -104,4 +104,3 @@ public sealed class MaterialXSpikeTests
         node.Category.Should().Be("standard_surface");
     }
 }
-

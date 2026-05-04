@@ -78,5 +78,3 @@ public static class MaterialXRuntimeLayout
         _ => "unknown",
     };
 }
-
-

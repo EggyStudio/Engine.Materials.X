@@ -90,4 +90,3 @@ public sealed class MaterialXRuntimeHandle
     /// <summary>Whether the native MaterialXC shim was reachable at plugin-build time.</summary>
     public required bool NativeAvailable { get; init; }
 }
-
