@@ -1,0 +1,19 @@
+<?xml version="1.0"?>
+<materialx version="1.39">
+  <!--
+    Minimal MaterialX fixture exercised by the engine's Engine.Materials.X tests:
+    a single standard_surface shader with constant-color base, modest metalness
+    and high roughness, and a green emission. Wrapped in a surfacematerial so the
+    extractor's surfacematerial-first walk has something to hand off to.
+  -->
+  <standard_surface name="SR_red" type="surfaceshader">
+    <input name="base_color" type="color3" value="1.0, 0.0, 0.0" />
+    <input name="metalness" type="float" value="0.2" />
+    <input name="specular_roughness" type="float" value="0.7" />
+    <input name="emission_color" type="color3" value="0.0, 1.0, 0.0" />
+  </standard_surface>
+  <surfacematerial name="M_red" type="material">
+    <input name="surfaceshader" type="surfaceshader" nodename="SR_red" />
+  </surfacematerial>
+</materialx>
+
