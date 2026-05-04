@@ -62,15 +62,9 @@ public sealed class MaterialXPlugin : IPlugin
             NativeAvailable = nativeReachable,
         });
 
-        if (app.World.TryGetResource<AssetServer>(out var server))
-        {
-            server.RegisterLoader(new MaterialXLoader());
-            Logger.Debug("MaterialXPlugin: MaterialXLoader registered with AssetServer.");
-        }
-        else
-        {
-            Logger.Warn("MaterialXPlugin: AssetServer not found - MaterialXLoader was NOT registered. Add AssetPlugin first.");
-        }
+        var server = app.World.Resource<AssetServer>();
+        server.RegisterLoader(new MaterialXLoader());
+        Logger.Debug("MaterialXPlugin: MaterialXLoader registered with AssetServer.");
 
         Logger.Info("MaterialXPlugin: MaterialX backend ready.");
     }
