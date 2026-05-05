@@ -22,9 +22,9 @@ namespace Engine;
 /// <c>standard_surface</c> and <c>gltf_pbr</c> - and maps their authored numeric inputs
 /// (<c>base_color</c>, <c>metalness</c>/<c>metallic</c>, <c>specular_roughness</c>/<c>roughness</c>,
 /// <c>emission_color</c>/<c>emissive</c>, <c>opacity</c>) onto the corresponding
-/// <see cref="SceneMaterialPayload"/> factors. Texture/connection following is intentionally
-/// out of scope for the first slice (keeps the test surface tractable; the engine already
-/// has a UsdUVTexture-style helper on the USD side that can be ported here later).
+/// <see cref="SceneMaterialPayload"/> factors. Inputs whose <c>nodename</c> resolves to an
+/// <c>image</c> or <c>tiledimage</c> node are followed and their <c>file</c> input is
+/// surfaced as a <see cref="SceneTextureRef"/> on the matching texture slot.
 /// </para>
 /// </remarks>
 public static class MaterialXMaterialReader
@@ -70,7 +70,7 @@ public static class MaterialXMaterialReader
             // No explicit surfacematerial - synthesise one per recognised standalone shader.
             foreach (var shaderEl in root.Elements().Where(IsRecognisedShader))
             {
-                var payload = ExtractFromShader(shaderEl, sourcePath);
+                var payload = ExtractFromShader(shaderEl, sourcePath, byName, mtlxXml: xml);
                 if (payload is not null) results.Add(payload);
             }
             return results;
@@ -88,7 +88,7 @@ public static class MaterialXMaterialReader
                 continue;
             }
 
-            var payload = ExtractFromShader(shaderEl, sourcePath, materialName: matEl.Attribute("name")?.Value);
+            var payload = ExtractFromShader(shaderEl, sourcePath, byName, mtlxXml: xml, materialName: matEl.Attribute("name")?.Value);
             if (payload is not null) results.Add(payload);
         }
         return results;
@@ -106,7 +106,12 @@ public static class MaterialXMaterialReader
     private static bool IsRecognisedShader(XElement el)
         => el.Name.LocalName is "standard_surface" or "gltf_pbr" or "open_pbr_surface";
 
-    private static SceneMaterialPayload? ExtractFromShader(XElement shaderEl, string? sourcePath, string? materialName = null)
+    private static SceneMaterialPayload? ExtractFromShader(
+        XElement shaderEl,
+        string? sourcePath,
+        IReadOnlyDictionary<string, XElement> byName,
+        string? mtlxXml = null,
+        string? materialName = null)
     {
         if (!IsRecognisedShader(shaderEl))
         {
@@ -119,11 +124,35 @@ public static class MaterialXMaterialReader
         float roughness = 1f;
         Vector3 emissive = Vector3.Zero;
 
+        SceneTextureRef? baseColorTex = null;
+        SceneTextureRef? metallicRoughnessTex = null;
+        SceneTextureRef? normalTex = null;
+        SceneTextureRef? emissiveTex = null;
+        SceneTextureRef? occlusionTex = null;
+
         foreach (var input in shaderEl.Elements().Where(e => e.Name.LocalName == "input"))
         {
             var name = (string?)input.Attribute("name");
+            if (name is null) continue;
             var value = (string?)input.Attribute("value");
-            if (name is null || value is null) continue;
+
+            // Texture connection: nodename points at an image / tiledimage node whose
+            // "file" input holds the asset path. The slot we route the texture into is
+            // chosen by the surface-shader input name (engine-canonical PBR mapping).
+            var nodename = (string?)input.Attribute("nodename");
+            if (nodename is not null && byName.TryGetValue(nodename, out var connected))
+            {
+                var tex = TryExtractTextureRef(connected, byName);
+                if (tex is not null)
+                {
+                    AssignTexture(shaderEl.Name.LocalName, name, tex,
+                        ref baseColorTex, ref metallicRoughnessTex,
+                        ref normalTex, ref emissiveTex, ref occlusionTex);
+                    continue;
+                }
+            }
+
+            if (value is null) continue;
 
             switch (shaderEl.Name.LocalName, name)
             {
@@ -181,11 +210,109 @@ public static class MaterialXMaterialReader
             MetallicFactor = metallic,
             RoughnessFactor = roughness,
             EmissiveFactor = emissive,
+            BaseColorTexture = baseColorTex,
+            MetallicRoughnessTexture = metallicRoughnessTex,
+            NormalTexture = normalTex,
+            EmissiveTexture = emissiveTex,
+            OcclusionTexture = occlusionTex,
+            MaterialXSource = mtlxXml,
         };
     }
 
-    private static bool TryParseFloat(string s, out float v)
-        => float.TryParse(s, NumberStyles.Float, CultureInfo.InvariantCulture, out v);
+    /// <summary>
+    /// Routes a discovered <see cref="SceneTextureRef"/> into the matching
+    /// <see cref="SceneMaterialPayload"/> texture slot, given the surface-shader
+    /// category and the input name authored on the surface node.
+    /// </summary>
+    private static void AssignTexture(
+        string shaderCategory, string inputName, SceneTextureRef tex,
+        ref SceneTextureRef? baseColor, ref SceneTextureRef? mr,
+        ref SceneTextureRef? normal, ref SceneTextureRef? emissive, ref SceneTextureRef? occlusion)
+    {
+        switch (shaderCategory, inputName)
+        {
+            case ("standard_surface", "base_color"):
+            case ("gltf_pbr", "base_color"):
+            case ("open_pbr_surface", "base_color"):
+                baseColor = tex; break;
+
+            case ("standard_surface", "metalness"):
+            case ("gltf_pbr", "metallic"):
+            case ("gltf_pbr", "metallic_roughness"):
+            case ("open_pbr_surface", "base_metalness"):
+                mr = tex; break;
+
+            case ("standard_surface", "specular_roughness"):
+            case ("gltf_pbr", "roughness"):
+            case ("open_pbr_surface", "specular_roughness"):
+                // If the same packed texture is bound to both metallic and roughness
+                // we keep the single ref; SceneMaterialPayload already documents the
+                // gltf-style packing (G = roughness, B = metallic).
+                mr ??= tex; break;
+
+            case ("standard_surface", "normal"):
+            case ("gltf_pbr", "normal"):
+            case ("open_pbr_surface", "geometry_normal"):
+                normal = tex; break;
+
+            case ("standard_surface", "emission_color"):
+            case ("gltf_pbr", "emissive"):
+            case ("open_pbr_surface", "emission_color"):
+                emissive = tex; break;
+
+            case ("standard_surface", "occlusion"):
+            case ("gltf_pbr", "occlusion"):
+                occlusion = tex; break;
+        }
+    }
+
+    /// <summary>
+    /// Reads the <c>file</c> input (and optional <c>uvtiling</c> / wrap inputs) of an
+    /// <c>image</c> or <c>tiledimage</c> node and returns a <see cref="SceneTextureRef"/>.
+    /// Returns <c>null</c> when <paramref name="node"/> is not an image node or its
+    /// <c>file</c> input is missing / empty.
+    /// </summary>
+    private static SceneTextureRef? TryExtractTextureRef(XElement node, IReadOnlyDictionary<string, XElement> byName)
+    {
+        if (node.Name.LocalName is not ("image" or "tiledimage")) return null;
+
+        string? file = null;
+        var wrapS = SceneWrapMode.Repeat;
+        var wrapT = SceneWrapMode.Repeat;
+
+        foreach (var input in node.Elements().Where(e => e.Name.LocalName == "input"))
+        {
+            var n = (string?)input.Attribute("name");
+            if (n is null) continue;
+            switch (n)
+            {
+                case "file":
+                    file = (string?)input.Attribute("value");
+                    break;
+                case "uaddressmode":
+                    wrapS = ParseWrap((string?)input.Attribute("value"));
+                    break;
+                case "vaddressmode":
+                    wrapT = ParseWrap((string?)input.Attribute("value"));
+                    break;
+            }
+        }
+
+        if (string.IsNullOrEmpty(file)) return null;
+        return new SceneTextureRef(file, UvSet: 0, wrapS, wrapT);
+    }
+
+    private static SceneWrapMode ParseWrap(string? v) => v switch
+    {
+        "periodic" or "repeat"  => SceneWrapMode.Repeat,
+        "mirror"                => SceneWrapMode.Mirror,
+        "clamp"                 => SceneWrapMode.Clamp,
+        "constant" or "black"   => SceneWrapMode.Black,
+        _                       => SceneWrapMode.Repeat,
+    };
+
+    private static bool TryParseFloat(string s, out float v) => 
+        float.TryParse(s, NumberStyles.Float, CultureInfo.InvariantCulture, out v);
 
     private static bool TryParseColor3(string s, out Vector3 v)
     {
